@@ -33,13 +33,16 @@ function Particle:create(x, y, vx, vy, mass, movetype, interact_type)
 	--[[particle.color.r = math.random()
 	particle.color.g = math.random()
 	particle.color.b = math.random()]]--
-	particle.color.g = 0
+	
+	--particle.color.g = 0
 	if interact_type>0 then
-		particle.color.r = 0.5*interact_type
-		particle.color.b = 0
+		particle.color.r = 0.5*math.abs(interact_type)
+		particle.color.g = 0.25*(2-math.abs(interact_type))
+		particle.color.b = 0.25*(2-math.abs(interact_type))
 	elseif interact_type<0 then
+		particle.color.r = 0.25*(2-math.abs(interact_type))
+		particle.color.g = 0.25*(2-math.abs(interact_type))
 		particle.color.b = 0.5*math.abs(interact_type)
-		particle.color.r = 0
 	else
 		particle.color.r = 0.5
 		particle.color.g = 0.5
@@ -124,6 +127,38 @@ function SpacePart:create()
 	return spacepart
 end
 
+Connect = {}
+Connect.__index = Connect
+function Connect:create(a, b)
+	local connect = {}
+	setmetatable(connect, Connect)
+	
+	connect.particleIndexA = a
+	connect.particleIndexB = b
+	
+	connect.joint = love.physics.newRopeJoint( particles[a].body.b, 
+												particles[b].body.b, 
+												particles[a]:getX(), 
+												particles[a]:getY(), 
+												particles[b]:getX(), 
+												particles[b]:getY(), 
+												40, 
+												true)
+	
+	--connect.jointIndex = #joints
+	
+	return connect
+end
+
+function Connect:delete()
+	--joints[jointIndex]:destroy()
+	--table.remove(joints, jointIndex)
+	self.joint:destroy()
+	
+	particles[self.particleIndexA].connectCount = particles[self.particleIndexA].connectCount - 1
+	particles[self.particleIndexB].connectCount = particles[self.particleIndexB].connectCount - 1
+end
+
 function put_indexes_in_parts()
 	for i=1, spacePartHeightCount do
 		for j=1, spacePartHeightCount do
@@ -169,12 +204,12 @@ function love.load()
 	
 	spaceX = 0
 	spaceY = 0
-	spaceWidth = 1000
-	spaceHeight = 1000
+	spaceWidth = 2000
+	spaceHeight = 2000
 	
 	
-	spacePartWidth = 100
-	spacePartHeight = 100
+	spacePartWidth = 50
+	spacePartHeight = 50
 	
 	spacePartWidthCount = spaceWidth/spacePartWidth
 	spacePartHeightCount = spaceHeight/spacePartHeight
@@ -187,23 +222,17 @@ function love.load()
 		end
 	end
 	
-	particles_count = 300
+	particles_count = 600
 	particles = {}
-	joints = {}
+	
+	connects = {}
+	--joints = {}
+	
 	for i=1, particles_count do
 		particles[i] = Particle:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0, 10, "dynamic", math.random(-2,2))
-		--if i>1 then
-		--	joints[i] = love.physics.newRopeJoint( particles[1].body.b, particles[i].body.b, particles[1]:getX(), particles[1]:getY(), particles[i]:getX(), particles[i]:getY(), 100, true)
-		--end
 		--particles[i].body.b:setLinearVelocity(math.random(-100, 100), math.random(-100, 100))
 	end
-	--particles[1].body.b:setLinearVelocity(1000, 0)
 	
-	--particles[1].mass = 10
-	
-	--particles[1].color.r = 1
-	--particles[2].color.g = 1
-	--particles[3].color.b = 1
 	put_indexes_in_parts()
 	
 end
@@ -346,7 +375,7 @@ function love.update(dt)
 						r = 1/(dist)--it is 1/r^2
 						--print(p, o)
 						if p<o and 
-						dist<40*40 and 
+						dist < 40*40 and 
 						( (particles[p].interact_type>=0 and particles[o].interact_type<=0) or 
 						(particles[o].interact_type>=0 and particles[p].interact_type<=0) ) and
 						particles[p].connectCount < particles[p].maxConnectCount and 
@@ -362,21 +391,15 @@ function love.update(dt)
 								end
 							end
 							if not isJoint then
-								joints[#joints+1] = love.physics.newRopeJoint( particles[p].body.b, 
+								connects[#connects+1] = Connect:create(p,o)
+								--[[joints[#joints+1] = love.physics.newRopeJoint( particles[p].body.b, 
 																				particles[o].body.b, 
 																				particles[p]:getX(), 
 																				particles[p]:getY(), 
 																				particles[o]:getX(), 
 																				particles[o]:getY(), 
-																				40, 
-																				true)
-								--[[joints[#joints+1] = love.physics.newWeldJoint( particles[p].body.b, 
-																				particles[o].body.b, 
-																				particles[p]:getX(), 
-																				particles[p]:getY(), 
-																				particles[o]:getX(), 
-																				particles[o]:getY(), 
-																				true)		]]--								
+																				20, 
+																				true)]]--							
 								particles[p].connectCount = particles[p].connectCount + 1
 								particles[o].connectCount = particles[o].connectCount + 1
 								--print(particles[p].connectCount,particles[p].maxConnectCount,particles[o].connectCount,particles[o].maxConnectCount)
@@ -452,7 +475,7 @@ function love.draw()
 	end
 	
 	
-	for i=1, table.getn(joints) do
+	--[[for i=1, table.getn(joints) do
 		love.graphics.setColor(1,1,1)
 		d = joints[i]:isDestroyed()
 		if not d then
@@ -465,7 +488,28 @@ function love.draw()
 		if not d then
 			love.graphics.line(bodyA:getX(), bodyA:getY(), bodyB:getX(), bodyB:getY())
 		end
+	end]]--
+	
+	delete_connects = {}
+	
+	for i=1, table.getn(connects) do
+		love.graphics.setColor(1,1,1)
+		bodyA, bodyB = connects[i].joint:getBodies()
+		if dist_2d(bodyA:getX(), bodyB:getX(), bodyA:getY(), bodyB:getY()) > 80*80 then
+			delete_connects[#delete_connects+1] = i
+		else
+			love.graphics.line(bodyA:getX(), bodyA:getY(), bodyB:getX(), bodyB:getY())
+		end
 	end
+	
+	--table.sort(delete_connects)
+	
+	for i=1, table.getn(delete_connects) do
+		d = delete_connects[#delete_connects-i+1]
+		connects[d]:delete()
+		table.remove(connects, d)
+	end
+	
     --love.graphics.circle("line", x1, y1, r1)
     --love.graphics.circle("line", x2, y2, r2)
     

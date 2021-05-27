@@ -1,4 +1,5 @@
 --love.graphics.clear = function() end
+require "imgui"
 
 function dist_1d(x1, x2)
 	return (x2-x1)*(x2-x1)
@@ -52,7 +53,9 @@ function Particle:create(x, y, vx, vy, mass, movetype, interact_type)
 	particle.connections = {}
 	particle.connectCount = 0
 	--particle.maxConnectCount = 6 - math.abs(interact_type)*2
-	particle.maxConnectCount = 3 - math.abs(interact_type)
+	particle.maxConnectCount = 3 - math.abs(interact_type) + 1
+	
+	particle.energy = math.random()
 	
 	
 	
@@ -102,7 +105,20 @@ function Particle:checkRect(rectX, rectY, rectW, rectH)
 	x = self:getX()
 	y = self:getY()
 	
-	if x<rectX then
+	--[[if x<rectX then
+		self.body.b:setX(rectX)
+	end
+	if x>rectX+rectW then
+		self.body.b:setX(rectX+rectW)
+	end
+	if y<rectY then
+		self.body.b:setY(rectY)
+	end
+	if y>rectY+rectH then
+		self.body.b:setY(rectY+rectH)
+	end]]--
+	
+	--[[if x<rectX then
 		self.body.b:setX(x+rectW)
 	end
 	if x>rectX+rectW then
@@ -113,7 +129,7 @@ function Particle:checkRect(rectX, rectY, rectW, rectH)
 	end
 	if y>rectY+rectH then
 		self.body.b:setY(y-rectH)
-	end
+	end]]--
 end
 
 SpacePart = {}
@@ -159,6 +175,64 @@ function Connect:delete()
 	particles[self.particleIndexB].connectCount = particles[self.particleIndexB].connectCount - 1
 end
 
+
+CODE_START = 0
+CODE_AP = 1
+CODE_VP = 2
+CODE_NZ = 3
+CODE_PARAM = 4
+CODE_VN = 5
+CODE_AN = 6
+CODE_STOP = 7
+
+Nucleus = {}
+Nucleus.__index = Nucleus
+function Nucleus:create(x, y, vx, vy)
+	local nucleus = {}
+	setmetatable(nucleus, Nucleus)
+	
+	nucleus.particle = Particle:create(x, y, vx, vy, 23, "dynamic", NEUTRAL_ZERO)
+	
+	nucleus.particle.radius = 15
+	
+	nucleus.particle.color.r = 0
+	nucleus.particle.color.g = 1
+	nucleus.particle.color.b = 0
+	
+	nucleus.code = {}
+	nucleus.code_size = math.random(0, 100)
+	for i=1, nucleus.code_size do
+		nucleus.code[i] = math.random(CODE_START, CODE_STOP)
+	end
+	
+	return nucleus
+end
+
+function Nucleus:split()
+	--[[childNucleus = Nucleus:create(self.particle:getX(), self.particle:getY(), self.particle:getVelocityX(), self.particle:getVelocityY())
+	nucleuses_count = nucleuses_count + 1
+	nucleuses[nucleuses_count] = childNucleus
+	particles_count = particles_count + 1
+	particles[particles_count] = childNucleus.particle]]--
+end
+
+Factory = {}
+Factory.__index = Factory
+function Factory:create(x, y, vx, vy)
+	local factory = {}
+	setmetatable(factory, Factory)
+	
+	factory.particle = Particle:create(x, y, vx, vy, 23, "dynamic", NEUTRAL_ZERO)
+	
+	factory.particle.radius = 15
+	
+	factory.particle.color.r = 1
+	factory.particle.color.g = 1
+	factory.particle.color.b = 0
+
+	return factory
+end
+
 function put_indexes_in_parts()
 	for i=1, spacePartHeightCount do
 		for j=1, spacePartHeightCount do
@@ -167,10 +241,18 @@ function put_indexes_in_parts()
 	end
 	
 	for i=1, particles_count do
-		row = math.floor((particles[i]:getY()-spaceY)/spacePartHeight)
-		column = math.floor((particles[i]:getX()-spaceX)/spacePartWidth)
-		--print(row+1, column+1, space_parts[row+1][column+1].indexes)
-		table.insert(space_parts[row+1][column+1].indexes, i)
+		row = math.ceil((particles[i]:getY()-spaceY)/spacePartHeight)
+		column = math.ceil((particles[i]:getX()-spaceX)/spacePartWidth)
+		
+		if row < 1 then row = 1 end
+		if row > spacePartHeightCount then row = spacePartHeightCount end
+		if column < 1 then column = 1 end
+		if column > spacePartWidthCount then column = spacePartWidthCount end
+		
+		--print(i, particles[i]:getY(), particles[i]:getX())
+		--print(row, column)
+		
+		table.insert(space_parts[row][column].indexes, i)
 	end
 end
 
@@ -222,7 +304,7 @@ function love.load()
 		end
 	end
 	
-	particles_count = 600
+	particles_count = 800
 	particles = {}
 	
 	connects = {}
@@ -233,12 +315,58 @@ function love.load()
 		--particles[i].body.b:setLinearVelocity(math.random(-100, 100), math.random(-100, 100))
 	end
 	
+	
+	nucleuses_count = 10
+	nucleuses = {}
+	
+	for i=1, nucleuses_count do
+		nucleuses[i] = Nucleus:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0)
+		particles[particles_count+i] = nucleuses[i].particle
+	end
+	
+	particles_count = particles_count + nucleuses_count
+	
+	
+	factories_count = 10
+	factories = {}
+	
+	for i=1, factories_count do
+		factories[i] = Factory:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0)
+		particles[particles_count+i] = factories[i].particle
+	end
+	
+	particles_count = particles_count + factories_count
+	
+	landscape = {}
+	landscape[1] = {}
+	landscape[1].body = love.physics.newBody(world, 0, 0, "static")
+	landscape[1].shape = love.physics.newEdgeShape(spaceX, spaceY, spaceX, spaceY+spaceHeight)
+	landscape[1].fixture = love.physics.newFixture(landscape[1].body, landscape[1].shape)
+	
+	landscape[2] = {}
+	landscape[2].body = love.physics.newBody(world, 0, 0, "static")
+	landscape[2].shape = love.physics.newEdgeShape(spaceX, spaceY, spaceX+spaceWidth, spaceY)
+	landscape[2].fixture = love.physics.newFixture(landscape[2].body, landscape[2].shape)
+	
+	landscape[3] = {}
+	landscape[3].body = love.physics.newBody(world, 0, 0, "static")
+	landscape[3].shape = love.physics.newEdgeShape(spaceX+spaceWidth, spaceY, spaceX+spaceWidth, spaceY+spaceHeight)
+	landscape[3].fixture = love.physics.newFixture(landscape[3].body, landscape[3].shape)
+	
+	landscape[4] = {}
+	landscape[4].body = love.physics.newBody(world, 0, 0, "static")
+	landscape[4].shape = love.physics.newEdgeShape(spaceX, spaceY+spaceHeight, spaceX+spaceWidth, spaceY+spaceHeight)
+	landscape[4].fixture = love.physics.newFixture(landscape[4].body, landscape[4].shape)
+	
 	put_indexes_in_parts()
 	
 end
 
 function love.update(dt)
 	--dt = dt/8
+	
+	imgui.NewFrame()
+	
 	if love.keyboard.isDown('left') then
 		cameraX = cameraX + cameraSpeed
 	end
@@ -416,8 +544,8 @@ function love.update(dt)
 							new_vx = new_vx + dist_x*r1
 							new_vy = new_vy + dist_y*r1
 						elseif particles[p].interact_type~=0 and particles[o].interact_type~=0 then
-							new_vx = new_vx - dist_x*r1
-							new_vy = new_vy - dist_y*r1
+							new_vx = new_vx - 2*dist_x*r1
+							new_vy = new_vy - 2*dist_y*r1
 						end
 						--new_vx = new_vx + dist_x*r1
 						--new_vy = new_vy + dist_y*r1
@@ -439,10 +567,10 @@ function love.update(dt)
 	end
 	
 	
-	for i=1, particles_count do
+	--[[for i=1, particles_count do
 		--particles[i]:update()
 		particles[i]:checkRect(spaceX, spaceY, spaceWidth, spaceHeight)
-	end
+	end]]--
 	
 	put_indexes_in_parts()
 	
@@ -463,6 +591,12 @@ function love.draw()
 		for j=1, spacePartWidthCount do
 			love.graphics.rectangle("line", spaceX+(j-1)*spacePartWidth, spaceY+(i-1)*spacePartHeight, spacePartWidth, spacePartHeight)
 		end
+	end
+	
+	love.graphics.setColor(1,0,0)
+	for i=1, 4 do
+		x1, y1, x2, y2 = landscape[i].shape:getPoints()
+		love.graphics.line(x1, y1, x2, y2)
 	end
 	
 	for i=1, particles_count do
@@ -515,5 +649,61 @@ function love.draw()
     
     love.graphics.pop()
     
+    for i=1, nucleuses_count do
+		imgui.Text("Nucleus " .. i)
+		s = ""
+		for j=1, nucleuses[i].code_size do
+			s = s .. nucleuses[i].code[j] .. ", "
+		end
+		imgui.TextWrapped(s)
+    end
+    imgui.Render()
+    
 end
 
+function love.quit()
+  imgui.ShutDown()
+end
+
+
+function love.textinput(text)
+  imgui.TextInput(text)
+  if not imgui.GetWantCaptureKeyboard() then
+  end
+end
+
+function love.keypressed(key, scancode, isrepat)
+  imgui.KeyPressed(key)
+  if not imgui.GetWantCaptureKeyboard() then
+  end
+end
+
+function love.keyreleased(key, scancode, isrepat)
+  imgui.KeyReleased(key)
+  if not imgui.GetWantCaptureKeyboard() then
+  end
+end
+
+function love.mousemoved(x, y, dx, dy)
+  imgui.MouseMoved(x, y)
+  if not imgui.GetWantCaptureMouse() then
+  end
+end
+
+function love.mousepressed(x, y, button)
+  imgui.MousePressed(button)
+  if not imgui.GetWantCaptureMouse() then
+  end
+end
+
+function love.mousereleased(x, y, button)
+  imgui.MouseReleased(button)
+  if not imgui.GetWantCaptureMouse() then
+  end
+end
+
+function love.wheelmoved(x, y)
+  imgui.WheelMoved(y)
+  if not imgui.GetWantCaptureMouse() then
+  end
+end

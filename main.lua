@@ -16,9 +16,14 @@ VERY_NEGATIVE = -1
 ABSOLUTE_NEGATIVE = -2--BLUE
 
 
+COMMON = 0
+NUCLEUS = 1
+FACTORY = 2
+
+
 Particle = {}
 Particle.__index = Particle
-function Particle:create(x, y, vx, vy, mass, movetype, interact_type)
+function Particle:create(x, y, vx, vy, mass, radius, movetype, interact_type)
 	local particle = {}
 	setmetatable(particle, Particle)
 	--particle.x = x
@@ -26,9 +31,7 @@ function Particle:create(x, y, vx, vy, mass, movetype, interact_type)
 	--particle.vx = vx
 	--particle.vy = vy
 	particle.mass = mass
-	particle.radius = 10
-	
-	particle.interact_type = interact_type
+	particle.radius = radius
 	
 	particle.color = {}
 	--[[particle.color.r = math.random()
@@ -50,15 +53,6 @@ function Particle:create(x, y, vx, vy, mass, movetype, interact_type)
 		particle.color.b = 0.5
 	end
 	
-	particle.connections = {}
-	particle.connectCount = 0
-	--particle.maxConnectCount = 6 - math.abs(interact_type)*2
-	particle.maxConnectCount = 3 - math.abs(interact_type) + 1
-	
-	particle.energy = math.random()
-	
-	
-	
 	particle.body = {}
     particle.body.b = love.physics.newBody(world, x, y, movetype)
     --particle.body.b:setAngle(math.rad(angle))
@@ -68,6 +62,17 @@ function Particle:create(x, y, vx, vy, mass, movetype, interact_type)
     particle.body.fixture = love.physics.newFixture(particle.body.b, particle.body.shape)
     particle.body.fixture:setFriction(0.5)
 	
+	
+	
+	particle.connections = {}
+	particle.connectCount = 0
+	--particle.maxConnectCount = 6 - math.abs(interact_type)*2
+	particle.maxConnectCount = 3 - math.abs(interact_type) + 1
+	
+	particle.energy = math.random()
+	
+	particle.interact_type = interact_type
+	particle.type = COMMON
 	
 	return particle
 end
@@ -180,7 +185,7 @@ CODE_START = 0
 CODE_AP = 1
 CODE_VP = 2
 CODE_NZ = 3
-CODE_PARAM = 4
+CODE_PARAM = 4--or make it CODE_SPLIT?
 CODE_VN = 5
 CODE_AN = 6
 CODE_STOP = 7
@@ -191,13 +196,17 @@ function Nucleus:create(x, y, vx, vy)
 	local nucleus = {}
 	setmetatable(nucleus, Nucleus)
 	
-	nucleus.particle = Particle:create(x, y, vx, vy, 23, "dynamic", NEUTRAL_ZERO)
+	nucleus.particle = Particle:create(x, y, vx, vy, 23, 15, "dynamic", NEUTRAL_ZERO)
 	
-	nucleus.particle.radius = 15
+	--nucleus.particle.radius = 15
 	
 	nucleus.particle.color.r = 0
 	nucleus.particle.color.g = 1
 	nucleus.particle.color.b = 0
+	
+	nucleus.particle.maxConnectCount = 1
+	
+	nucleus.particle.type = NUCLEUS
 	
 	nucleus.code = {}
 	nucleus.code_size = math.random(0, 100)
@@ -216,20 +225,33 @@ function Nucleus:split()
 	particles[particles_count] = childNucleus.particle]]--
 end
 
+
+STATE_IDLE = 0
+STATE_GET_CODE = 1
+STATE_FIND_PARTICLE = 2
+
 Factory = {}
 Factory.__index = Factory
 function Factory:create(x, y, vx, vy)
 	local factory = {}
 	setmetatable(factory, Factory)
 	
-	factory.particle = Particle:create(x, y, vx, vy, 23, "dynamic", NEUTRAL_ZERO)
+	factory.particle = Particle:create(x, y, vx, vy, 23, 15, "dynamic", NEUTRAL_ZERO)
 	
-	factory.particle.radius = 15
+	--factory.particle.radius = 15
 	
 	factory.particle.color.r = 1
 	factory.particle.color.g = 1
 	factory.particle.color.b = 0
 
+	factory.particle.maxConnectCount = 1
+	
+	factory.particle.type = FACTORY
+	
+	factory.state = STATE_IDLE
+	
+	factory.current_code_id = 0
+	
 	return factory
 end
 
@@ -253,6 +275,121 @@ function put_indexes_in_parts()
 		--print(row, column)
 		
 		table.insert(space_parts[row][column].indexes, i)
+	end
+end
+
+function isConnectPossible(a, b)
+
+end
+
+function interactParticles(p, o)
+	dist_x = particles[o]:getX()-particles[p]:getX()
+	dist_y = particles[o]:getY()-particles[p]:getY()
+	dist = dist_x*dist_x + dist_y*dist_y
+	r = 1/(dist)--it is 1/r^2
+	--print(p, o)
+	if --p<o and 
+	--dist < 40*40 and
+	 dist < 2*(particles[o].radius+particles[p].radius) * 2*(particles[o].radius+particles[p].radius) and
+	( (particles[p].interact_type>=0 and particles[o].interact_type<=0) or 
+	(particles[o].interact_type>=0 and particles[p].interact_type<=0) ) and
+	particles[p].connectCount < particles[p].maxConnectCount and 
+	particles[o].connectCount < particles[o].maxConnectCount then
+		isJoint = false
+		pBodyJoints = particles[p].body.b:getJoints()
+		for jo=1, table.getn(pBodyJoints) do
+			bodyA, bodyB = pBodyJoints[jo]:getBodies()
+			if (particles[p].body.b == bodyA and particles[o].body.b == bodyB) or 
+			(particles[p].body.b == bodyB and particles[o].body.b == bodyA) then
+				isJoint = true
+				break
+			end
+		end
+		if not isJoint then
+			connects[#connects+1] = Connect:create(p,o)
+	
+			particles[p].connectCount = particles[p].connectCount + 1
+			particles[o].connectCount = particles[o].connectCount + 1
+			--print(particles[p].connectCount,particles[p].maxConnectCount,particles[o].connectCount,particles[o].maxConnectCount)
+		end
+	end
+	
+	dist_sum = dist_sum + r
+	r1 = particles[o].mass*r
+	
+	
+	if (particles[p].interact_type>0 and particles[o].interact_type<0) or 
+		(particles[p].interact_type<0 and particles[o].interact_type>0) then
+		new_vx = new_vx + dist_x*r1
+		new_vy = new_vy + dist_y*r1
+	elseif particles[p].interact_type~=0 and particles[o].interact_type~=0 then
+		new_vx = new_vx - 2*dist_x*r1
+		new_vy = new_vy - 2*dist_y*r1
+	end
+	--new_vx = new_vx + dist_x*r1
+	--new_vy = new_vy + dist_y*r1
+end
+
+function calcAllParticlesInsideSpacePart(h, w)
+	check_indexes = {}
+	if h>1 then
+		if w>1 then
+			tableConcat(check_indexes, space_parts[h-1][w-1].indexes)
+		end
+		tableConcat(check_indexes, space_parts[h-1][w].indexes)
+		if w<spacePartWidthCount then
+			tableConcat(check_indexes, space_parts[h-1][w+1].indexes)
+		end
+	end
+	
+	if w>1 then
+		tableConcat(check_indexes, space_parts[h][w-1].indexes)
+	end
+	tableConcat(check_indexes, space_parts[h][w].indexes)
+	if w<spacePartWidthCount then
+		tableConcat(check_indexes, space_parts[h][w+1].indexes)
+	end 
+	
+	if h<spacePartHeightCount then
+		if w>1 then
+			tableConcat(check_indexes, space_parts[h+1][w-1].indexes)
+		end
+		tableConcat(check_indexes, space_parts[h+1][w].indexes)
+		if w<spacePartWidthCount then
+			tableConcat(check_indexes, space_parts[h+1][w+1].indexes)
+		end
+	end
+	
+	ind_size = table.getn(check_indexes)
+	--ind_size = table.getn(space_parts[h][w].indexes)
+	
+	--avrg_dist = 0
+	
+	for i=1, ind_size do
+		p = check_indexes[i]
+		new_vx = 0
+		new_vy = 0
+		
+		dist_sum = 0
+		
+		for j=1, ind_size do
+			o = check_indexes[j]
+			
+			if p~=o then
+				interactParticles(p, o)
+			end
+		end
+		
+		--k = 10
+		
+		old_vx, old_vy = particles[p]:getVelocity()
+		particles[p]:setVelocity(old_vx + 1*new_vx, old_vy + 1*new_vy)
+		--print(dist_sum)
+		--if dist_sum < 0.02 then
+		--	particles[p]:setVelocity(old_vx + new_vx, old_vy + new_vy)
+		--elseif dist_sum > 0.03 then
+		--	particles[p]:setVelocity(old_vx - new_vx, old_vy - new_vy)
+		--end
 	end
 end
 
@@ -286,8 +423,8 @@ function love.load()
 	
 	spaceX = 0
 	spaceY = 0
-	spaceWidth = 2000
-	spaceHeight = 2000
+	spaceWidth = 3000
+	spaceHeight = 3000
 	
 	
 	spacePartWidth = 50
@@ -304,14 +441,14 @@ function love.load()
 		end
 	end
 	
-	particles_count = 800
+	particles_count = 1000
 	particles = {}
 	
 	connects = {}
 	--joints = {}
 	
 	for i=1, particles_count do
-		particles[i] = Particle:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0, 10, "dynamic", math.random(-2,2))
+		particles[i] = Particle:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0, 10, 10, "dynamic", math.random(-2,2))
 		--particles[i].body.b:setLinearVelocity(math.random(-100, 100), math.random(-100, 100))
 	end
 	
@@ -331,7 +468,9 @@ function love.load()
 	factories = {}
 	
 	for i=1, factories_count do
-		factories[i] = Factory:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0)
+		--factories[i] = Factory:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0)
+		--factories[i] = Factory:create(nucleuses[i].particle:getX() + math.random(-spacePartWidth, spacePartWidth), nucleuses[i].particle:getY() + math.random(-spacePartHeight, spacePartHeight), 0, 0)
+		factories[i] = Factory:create(nucleuses[i].particle:getX() + math.random(-40, 40), nucleuses[i].particle:getY() + math.random(-40, 40), 0, 0)
 		particles[particles_count+i] = factories[i].particle
 	end
 	
@@ -408,50 +547,13 @@ function love.update(dt)
 		--print(cameraX, cameraY)
 	end
 	
-	--[[avrg_dist = 0
-	for i=1, particles_count do
-		new_i_vx = 0
-		new_i_vy = 0
-		
-		dist_sum = 0
-		
-		for j=1, particles_count do
-			if not (i==j) then
-				--new_j_vx = 0
-				--new_j_vy = 0
-				dist_x = particles[j]:getX()-particles[i]:getX()
-				dist_y = particles[j]:getY()-particles[i]:getY()
-				r = 1/(dist_x*dist_x + dist_y*dist_y)--it is 1/r^2
-				
-				dist_sum = dist_sum + r
-				
-				r1 = particles[j].mass*r
-				--r2 = particles[i].mass*r
-				new_i_vx = new_i_vx + dist_x*r1
-				--new_j_vx = new_j_vx - dist_x*r2
-				
-				new_i_vy = new_i_vy + dist_y*r1
-				--new_j_vy = new_j_vy - dist_y*r2
-			end
-		end
-		old_i_vx, old_i_vy = particles[i]:getVelocity()
-		particles[i]:setVelocity(old_i_vx + new_i_vx, old_i_vy + new_i_vy)
-		--print(dist_sum)
-		--avrg_dist = avrg_dist+dist_sum
-		
-		if dist_sum < 0.02 then
-			particles[i]:setVelocity(old_i_vx + new_i_vx, old_i_vy + new_i_vy)
-		elseif dist_sum > 0.03 then
-			particles[i]:setVelocity(old_i_vx - new_i_vx, old_i_vy - new_i_vy)
-		end
-	end
-	]]--
-	
 	--dont even try to understand it
 	for h=1, spacePartHeightCount do
 		for w=1, spacePartWidthCount do
-		
-			check_indexes = {}
+			
+			calcAllParticlesInsideSpacePart(h,w)
+			
+			--[[check_indexes = {}
 			if h>1 then
 				if w>1 then
 					tableConcat(check_indexes, space_parts[h-1][w-1].indexes)
@@ -502,8 +604,9 @@ function love.update(dt)
 						dist = dist_x*dist_x + dist_y*dist_y
 						r = 1/(dist)--it is 1/r^2
 						--print(p, o)
-						if p<o and 
-						dist < 40*40 and 
+						if --p<o and 
+						--dist < 40*40 and
+						 dist < 2*(particles[o].radius+particles[p].radius) * 2*(particles[o].radius+particles[p].radius) and
 						( (particles[p].interact_type>=0 and particles[o].interact_type<=0) or 
 						(particles[o].interact_type>=0 and particles[p].interact_type<=0) ) and
 						particles[p].connectCount < particles[p].maxConnectCount and 
@@ -520,14 +623,7 @@ function love.update(dt)
 							end
 							if not isJoint then
 								connects[#connects+1] = Connect:create(p,o)
-								--[[joints[#joints+1] = love.physics.newRopeJoint( particles[p].body.b, 
-																				particles[o].body.b, 
-																				particles[p]:getX(), 
-																				particles[p]:getY(), 
-																				particles[o]:getX(), 
-																				particles[o]:getY(), 
-																				20, 
-																				true)]]--							
+						
 								particles[p].connectCount = particles[p].connectCount + 1
 								particles[o].connectCount = particles[o].connectCount + 1
 								--print(particles[p].connectCount,particles[p].maxConnectCount,particles[o].connectCount,particles[o].maxConnectCount)
@@ -555,17 +651,16 @@ function love.update(dt)
 				--k = 10
 				
 				old_vx, old_vy = particles[p]:getVelocity()
-				particles[p]:setVelocity(old_vx + new_vx, old_vy + new_vy)
+				particles[p]:setVelocity(old_vx + 1*new_vx, old_vy + 1*new_vy)
 				--print(dist_sum)
-				--[[if dist_sum < 0.02 then
-					particles[p]:setVelocity(old_vx + new_vx, old_vy + new_vy)
-				elseif dist_sum > 0.03 then
-					particles[p]:setVelocity(old_vx - new_vx, old_vy - new_vy)
-				end--]]
-			end
+				--if dist_sum < 0.02 then
+				--	particles[p]:setVelocity(old_vx + new_vx, old_vy + new_vy)
+				--elseif dist_sum > 0.03 then
+				--	particles[p]:setVelocity(old_vx - new_vx, old_vy - new_vy)
+				--end
+			end--]]
 		end
 	end
-	
 	
 	--[[for i=1, particles_count do
 		--particles[i]:update()
@@ -642,6 +737,7 @@ function love.draw()
 		d = delete_connects[#delete_connects-i+1]
 		connects[d]:delete()
 		table.remove(connects, d)
+		print("Really deleted!")
 	end
 	
     --love.graphics.circle("line", x1, y1, r1)

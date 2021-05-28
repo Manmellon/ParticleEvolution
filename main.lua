@@ -71,6 +71,8 @@ function Particle:create(x, y, vx, vy, mass, radius, movetype, interact_type)
 	
 	particle.energy = math.random()
 	
+	particle.maxEnergy = 1
+	
 	particle.interact_type = interact_type
 	particle.type = COMMON
 	
@@ -208,10 +210,15 @@ function Nucleus:create(x, y, vx, vy)
 	
 	nucleus.particle.type = NUCLEUS
 	
-	nucleus.code = {}
+	--[[nucleus.code = {}
 	nucleus.code_size = math.random(0, 100)
 	for i=1, nucleus.code_size do
 		nucleus.code[i] = math.random(CODE_START, CODE_STOP)
+	end]]--
+	nucleus.particle.code = {}
+	nucleus.particle.code_size = math.random(0, 100)
+	for i=1, nucleus.particle.code_size do
+		nucleus.particle.code[i] = math.random(CODE_START, CODE_STOP)
 	end
 	
 	return nucleus
@@ -227,7 +234,7 @@ end
 
 
 STATE_IDLE = 0
-STATE_GET_CODE = 1
+STATE_GET_CODE = 1--STATE_WAIT_START
 STATE_FIND_PARTICLE = 2
 
 Factory = {}
@@ -248,9 +255,10 @@ function Factory:create(x, y, vx, vy)
 	
 	factory.particle.type = FACTORY
 	
-	factory.state = STATE_IDLE
+	factory.particle.state = STATE_IDLE
 	
-	factory.current_code_id = 0
+	factory.particle.nucleus_id = 0
+	factory.particle.code_offset = 1
 	
 	return factory
 end
@@ -374,7 +382,6 @@ function calcAllParticlesInsideSpacePart(h, w)
 		
 		for j=1, ind_size do
 			o = check_indexes[j]
-			
 			if p~=o then
 				interactParticles(p, o)
 			end
@@ -390,6 +397,45 @@ function calcAllParticlesInsideSpacePart(h, w)
 		--elseif dist_sum > 0.03 then
 		--	particles[p]:setVelocity(old_vx - new_vx, old_vy - new_vy)
 		--end
+		
+		
+		
+		
+		if particles[p].type == FACTORY then
+			isNucleusNearby = false
+			nucleus_id = 0
+			for j=1, ind_size do
+				o = check_indexes[j]
+				if particles[o].type==NUCLEUS then
+					isNucleusNearby = true
+					nucleus_id = o
+					break
+				end
+			end
+			
+			if isNucleusNearby then
+				if particles[p].state == STATE_IDLE then
+					if nucleus_id ~= particles[p].nucleus_id then
+						particles[p].nucleus_id = nucleus_id
+						particles[p].code_offset = 1
+						particles[p].state = STATE_GET_CODE
+					end
+				end
+			else
+				particles[p].state = STATE_IDLE
+			end
+			
+			if particles[p].state == STATE_GET_CODE then
+				code = particles[particles[p].nucleus_id].code[particles[p].code_offset]
+				if code == CODE_START then
+				end
+			end
+			
+			if particles[p].state == STATE_FIND_PARTICLE then
+			end
+			
+		end
+		
 	end
 end
 
@@ -458,6 +504,7 @@ function love.load()
 	
 	for i=1, nucleuses_count do
 		nucleuses[i] = Nucleus:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0)
+		--nucleuses[i] = Nucleus:create(spaceX + 1500, spaceY + 1500, 0, 0)
 		particles[particles_count+i] = nucleuses[i].particle
 	end
 	
@@ -745,14 +792,33 @@ function love.draw()
     
     love.graphics.pop()
     
+    
+    imgui.SetNextWindowPos(0, 0)
+    
+    for i=1, factories_count do
+		imgui.Text("Factory " .. i)
+		imgui.Text("State " .. factories[i].particle.state)
+		
+		n_id = factories[i].particle.nucleus_id
+		imgui.Text("Connected to Nucleus " .. n_id)
+		if n_id > 0 then
+			s = ""
+			for j=1, particles[n_id].code_size do
+				s = s .. particles[n_id].code[j] .. ", "
+			end
+			imgui.TextWrapped(s)
+		end
+    end
+    --[[
     for i=1, nucleuses_count do
 		imgui.Text("Nucleus " .. i)
 		s = ""
-		for j=1, nucleuses[i].code_size do
-			s = s .. nucleuses[i].code[j] .. ", "
+		for j=1, nucleuses[i].particle.code_size do
+			s = s .. nucleuses[i].particle.code[j] .. ", "
 		end
 		imgui.TextWrapped(s)
     end
+    ]]--
     imgui.Render()
     
 end

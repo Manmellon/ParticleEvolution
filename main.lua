@@ -76,7 +76,14 @@ function Particle:create(x, y, vx, vy, mass, radius, movetype, interact_type)
 	particle.interact_type = interact_type
 	particle.type = COMMON
 	
+	particle.alive = true
+	
 	return particle
+end
+
+function Particle:delete()
+	self.body.b:destroy()
+	--self=nil
 end
 
 function Particle:update()
@@ -159,12 +166,12 @@ function Connect:create(a, b)
 	connect.particleIndexA = a
 	connect.particleIndexB = b
 	
-	connect.joint = love.physics.newRopeJoint( particles[a].body.b, 
-												particles[b].body.b, 
-												particles[a]:getX(), 
-												particles[a]:getY(), 
-												particles[b]:getX(), 
-												particles[b]:getY(), 
+	connect.joint = love.physics.newRopeJoint( a.body.b, 
+												b.body.b, 
+												a:getX(), 
+												a:getY(), 
+												b:getX(), 
+												b:getY(), 
 												40, 
 												true)
 	
@@ -178,8 +185,10 @@ function Connect:delete()
 	--table.remove(joints, jointIndex)
 	self.joint:destroy()
 	
-	particles[self.particleIndexA].connectCount = particles[self.particleIndexA].connectCount - 1
-	particles[self.particleIndexB].connectCount = particles[self.particleIndexB].connectCount - 1
+	--particles[self.particleIndexA].connectCount = particles[self.particleIndexA].connectCount - 1
+	--particles[self.particleIndexB].connectCount = particles[self.particleIndexB].connectCount - 1
+	self.particleIndexA.connectCount = self.particleIndexA.connectCount - 1
+	self.particleIndexB.connectCount = self.particleIndexB.connectCount - 1
 end
 
 
@@ -192,13 +201,31 @@ CODE_VN = 5
 CODE_AN = 6
 CODE_STOP = 7
 
+function code_to_type(c)
+	if c>0 and c<4 then
+		return 3-c
+	elseif c>4 and c<7 then
+		return 4-c
+	else
+		return -999
+	end
+end
+
+PARAM_SET_X = 0
+PARAM_SET_Y = 1
+PARAM_SET_VX = 2
+PARAM_SET_VY = 3
+PARAM_SPLIT = 4
+PARAM_SET_ENERGY = 5
+
+
 Nucleus = {}
 Nucleus.__index = Nucleus
 function Nucleus:create(x, y, vx, vy)
 	local nucleus = {}
 	setmetatable(nucleus, Nucleus)
 	
-	nucleus.particle = Particle:create(x, y, vx, vy, 23, 15, "dynamic", NEUTRAL_ZERO)
+	nucleus.particle = Particle:create(x, y, vx, vy, 25, 16, "dynamic", NEUTRAL_ZERO)
 	
 	--nucleus.particle.radius = 15
 	
@@ -234,8 +261,23 @@ end
 
 
 STATE_IDLE = 0
-STATE_GET_CODE = 1--STATE_WAIT_START
-STATE_FIND_PARTICLE = 2
+STATE_LOOK_FOR_START = 1
+STATE_RUN_COMMAND = 2
+STATE_FIND_PARTICLE = 3
+
+function state_to_str(s)
+	if s==STATE_IDLE then
+		return "Idle"
+	elseif s==STATE_LOOK_FOR_START then
+		return "Look Start"
+	elseif s==STATE_RUN_COMMAND then
+		return "Run Command"
+	elseif s==STATE_FIND_PARTICLE then
+		return "Find Particle"
+	else	
+		return "WTF"
+	end
+end
 
 Factory = {}
 Factory.__index = Factory
@@ -243,7 +285,7 @@ function Factory:create(x, y, vx, vy)
 	local factory = {}
 	setmetatable(factory, Factory)
 	
-	factory.particle = Particle:create(x, y, vx, vy, 23, 15, "dynamic", NEUTRAL_ZERO)
+	factory.particle = Particle:create(x, y, vx, vy, 25, 16, "dynamic", NEUTRAL_ZERO)
 	
 	--factory.particle.radius = 15
 	
@@ -263,6 +305,44 @@ function Factory:create(x, y, vx, vy)
 	return factory
 end
 
+--[[function Factory:nextCode()
+	self.particle.code_offset = self.particle.code_offset + 1
+	if self.particle.code_offset > particles[self.particle.nucleus_id].code_size then
+		self.particle.code_offset = 1
+	end
+end
+
+function Factory:getCode()
+	return particles[self.particle.nucleus_id].code[self.particle.code_offset]
+end]]--
+function Particle:nextCode()
+	self.code_offset = self.code_offset + 1
+	if self.code_offset > self.nucleus_id.code_size then
+		self.code_offset = 1
+	end
+end
+
+function Particle:getCode()
+	return self.nucleus_id.code[self.code_offset]
+end
+
+
+function insert_index_in_part(i)
+	row = math.ceil((particles[i]:getY()-spaceY)/spacePartHeight)
+	column = math.ceil((particles[i]:getX()-spaceX)/spacePartWidth)
+	
+	if row < 1 then row = 1 end
+	if row > spacePartHeightCount then row = spacePartHeightCount end
+	if column < 1 then column = 1 end
+	if column > spacePartWidthCount then column = spacePartWidthCount end
+	
+	--print(i, particles[i]:getY(), particles[i]:getX())
+	--print(row, column)
+	
+	--table.insert(space_parts[row][column].indexes, i)
+	table.insert(space_parts[row][column].indexes, particles[i])
+end
+
 function put_indexes_in_parts()
 	for i=1, spacePartHeightCount do
 		for j=1, spacePartHeightCount do
@@ -270,8 +350,9 @@ function put_indexes_in_parts()
 		end
 	end
 	
-	for i=1, particles_count do
-		row = math.ceil((particles[i]:getY()-spaceY)/spacePartHeight)
+	for i=1, table.getn(particles) do
+		insert_index_in_part(i)
+		--[[row = math.ceil((particles[i]:getY()-spaceY)/spacePartHeight)
 		column = math.ceil((particles[i]:getX()-spaceX)/spacePartWidth)
 		
 		if row < 1 then row = 1 end
@@ -282,7 +363,7 @@ function put_indexes_in_parts()
 		--print(i, particles[i]:getY(), particles[i]:getX())
 		--print(row, column)
 		
-		table.insert(space_parts[row][column].indexes, i)
+		table.insert(space_parts[row][column].indexes, i)]]--
 	end
 end
 
@@ -291,46 +372,46 @@ function isConnectPossible(a, b)
 end
 
 function interactParticles(p, o)
-	dist_x = particles[o]:getX()-particles[p]:getX()
-	dist_y = particles[o]:getY()-particles[p]:getY()
+	dist_x = o:getX()-p:getX()
+	dist_y = o:getY()-p:getY()
 	dist = dist_x*dist_x + dist_y*dist_y
 	r = 1/(dist)--it is 1/r^2
 	--print(p, o)
 	if --p<o and 
-	--dist < 40*40 and
-	 dist < 2*(particles[o].radius+particles[p].radius) * 2*(particles[o].radius+particles[p].radius) and
-	( (particles[p].interact_type>=0 and particles[o].interact_type<=0) or 
-	(particles[o].interact_type>=0 and particles[p].interact_type<=0) ) and
-	particles[p].connectCount < particles[p].maxConnectCount and 
-	particles[o].connectCount < particles[o].maxConnectCount then
+	--p.alive and o.alive and
+	 dist < 2*(o.radius+p.radius) * 2*(o.radius+p.radius) and--dist < 40*40
+	( (p.interact_type>=0 and o.interact_type<=0) or 
+	(o.interact_type>=0 and p.interact_type<=0) ) and
+	p.connectCount < p.maxConnectCount and 
+	o.connectCount < o.maxConnectCount then
 		isJoint = false
-		pBodyJoints = particles[p].body.b:getJoints()
+		pBodyJoints = p.body.b:getJoints()
 		for jo=1, table.getn(pBodyJoints) do
 			bodyA, bodyB = pBodyJoints[jo]:getBodies()
-			if (particles[p].body.b == bodyA and particles[o].body.b == bodyB) or 
-			(particles[p].body.b == bodyB and particles[o].body.b == bodyA) then
+			if (p.body.b == bodyA and o.body.b == bodyB) or 
+			(p.body.b == bodyB and o.body.b == bodyA) then
 				isJoint = true
 				break
 			end
 		end
 		if not isJoint then
 			connects[#connects+1] = Connect:create(p,o)
-	
-			particles[p].connectCount = particles[p].connectCount + 1
-			particles[o].connectCount = particles[o].connectCount + 1
-			--print(particles[p].connectCount,particles[p].maxConnectCount,particles[o].connectCount,particles[o].maxConnectCount)
+			
+			p.connectCount = p.connectCount + 1
+			o.connectCount = o.connectCount + 1
+			--print(p.connectCount,p.maxConnectCount,o.connectCount,o.maxConnectCount)
 		end
 	end
 	
 	dist_sum = dist_sum + r
-	r1 = particles[o].mass*r
+	r1 = o.mass*r
 	
 	
-	if (particles[p].interact_type>0 and particles[o].interact_type<0) or 
-		(particles[p].interact_type<0 and particles[o].interact_type>0) then
+	if (p.interact_type>0 and o.interact_type<0) or 
+		(p.interact_type<0 and o.interact_type>0) then
 		new_vx = new_vx + dist_x*r1
 		new_vy = new_vy + dist_y*r1
-	elseif particles[p].interact_type~=0 and particles[o].interact_type~=0 then
+	elseif p.interact_type~=0 and o.interact_type~=0 then
 		new_vx = new_vx - 2*dist_x*r1
 		new_vy = new_vy - 2*dist_y*r1
 	end
@@ -368,13 +449,130 @@ function calcAllParticlesInsideSpacePart(h, w)
 		end
 	end
 	
+	
 	ind_size = table.getn(check_indexes)
 	--ind_size = table.getn(space_parts[h][w].indexes)
 	
 	--avrg_dist = 0
 	
 	for i=1, ind_size do
+		if i > ind_size then --Added because deleting particles
+			break
+		end
+		
 		p = check_indexes[i]
+		
+		
+		--print(i, p)
+		--print(p.type)
+		if p.type == FACTORY then--FACTORY == 2
+			isNucleusNearby = false
+			nucleus_id = nil
+			for j=1, ind_size do
+				o = check_indexes[j]
+				--print(o.type)
+				if o.type==NUCLEUS then--NUCLEUS == 1
+					isNucleusNearby = true
+					nucleus_id = o
+					--break
+				end
+			end
+			--print("endfor")
+			print(isNucleusNearby)
+			if isNucleusNearby then
+				--p.state = STATE_GET_CODE
+				if p.state == STATE_IDLE then
+					if nucleus_id ~= p.nucleus_id then
+						p.nucleus_id = nucleus_id
+						p.code_offset = 1
+					end
+					p.state = STATE_LOOK_FOR_START
+				end
+			else
+				p.state = STATE_IDLE
+			end
+			
+			if p.state == STATE_LOOK_FOR_START then
+				print(nucleus_id.code)
+				code = p:getCode()
+				if code == CODE_START then
+					p.state = STATE_RUN_COMMAND
+					--p:nextCode()
+				elseif code == CODE_PARAM then
+					p:nextCode()
+					code = p:getCode()
+					if code == PARAM_SPLIT then
+						--Split here
+						nucleuses[#nucleuses+1] = Nucleus:create(p:getX() + math.random(-40, 40), p:getY() + math.random(-40, 40), 0, 0)
+						particles[#particles+1] = nucleuses[#nucleuses].particle
+						
+						p.nucleus_id.energy = p.nucleus_id.energy/2
+						nucleuses[#nucleuses].particle.energy = p.nucleus_id.energy
+						
+						--nucleuses[#nucleuses].particle.code = p.nucleus_id.code
+						for k,v in ipairs(p.nucleus_id.code) do
+							nucleuses[#nucleuses].particle.code[k] = v
+						end
+						nucleuses[#nucleuses].particle.code_size = p.nucleus_id.code_size
+					end
+				end
+				p:nextCode()
+					
+			elseif p.state == STATE_RUN_COMMAND then
+				code = p:getCode()
+				if code == CODE_STOP then
+					p.state = STATE_LOOK_FOR_START
+				elseif code == CODE_PARAM then
+					p:nextCode()
+					code = p:getCode()
+					if code == PARAM_SPLIT then
+						--Split here
+						nucleuses[#nucleuses+1] = Nucleus:create(p:getX() + math.random(-40, 40), p:getY() + math.random(-40, 40), 0, 0)
+						particles[#particles+1] = nucleuses[#nucleuses].particle
+						
+						p.nucleus_id.energy = p.nucleus_id.energy/2
+						nucleuses[#nucleuses].particle.energy = p.nucleus_id.energy
+						
+						--nucleuses[#nucleuses].particle.code = p.nucleus_id.code
+						for k,v in ipairs(p.nucleus_id.code) do
+							nucleuses[#nucleuses].particle.code[k] = v
+						end
+						nucleuses[#nucleuses].particle.code_size = p.nucleus_id.code_size
+					else
+						--Other params
+					end
+				elseif code ~= CODE_START then
+					p.state = STATE_FIND_PARTICLE
+				end
+				p:nextCode()
+			end	
+			
+			if p.state == STATE_FIND_PARTICLE then
+				code = p:getCode()
+				for j=1, ind_size do
+					o = check_indexes[j]
+					--print(o.type)
+					if o.type==COMMON and o.interact_type==code_to_type(code) then
+						p.state = STATE_RUN_COMMAND
+						--table.remove(particles, o)
+						
+						o.alive = false
+						
+						
+						--[[particles_count = particles_count-1
+						table.remove(check_indexes,j)
+						ind_size = ind_size-1]]--
+						--print("find : ", j, o)
+						break
+					end
+				end
+			end
+				
+		end
+		
+		
+		
+		
 		new_vx = 0
 		new_vy = 0
 		
@@ -382,59 +580,24 @@ function calcAllParticlesInsideSpacePart(h, w)
 		
 		for j=1, ind_size do
 			o = check_indexes[j]
-			if p~=o then
+			--print("interact: ", j, o, p)
+			if p~=o and p.alive and o.alive then
 				interactParticles(p, o)
 			end
 		end
 		
 		--k = 10
 		
-		old_vx, old_vy = particles[p]:getVelocity()
-		particles[p]:setVelocity(old_vx + 1*new_vx, old_vy + 1*new_vy)
+		old_vx, old_vy = p:getVelocity()
+		p:setVelocity(old_vx + 1*new_vx, old_vy + 1*new_vy)
 		--print(dist_sum)
 		--if dist_sum < 0.02 then
-		--	particles[p]:setVelocity(old_vx + new_vx, old_vy + new_vy)
+		--	p:setVelocity(old_vx + new_vx, old_vy + new_vy)
 		--elseif dist_sum > 0.03 then
-		--	particles[p]:setVelocity(old_vx - new_vx, old_vy - new_vy)
+		--	p:setVelocity(old_vx - new_vx, old_vy - new_vy)
 		--end
 		
 		
-		
-		
-		if particles[p].type == FACTORY then
-			isNucleusNearby = false
-			nucleus_id = 0
-			for j=1, ind_size do
-				o = check_indexes[j]
-				if particles[o].type==NUCLEUS then
-					isNucleusNearby = true
-					nucleus_id = o
-					break
-				end
-			end
-			
-			if isNucleusNearby then
-				if particles[p].state == STATE_IDLE then
-					if nucleus_id ~= particles[p].nucleus_id then
-						particles[p].nucleus_id = nucleus_id
-						particles[p].code_offset = 1
-						particles[p].state = STATE_GET_CODE
-					end
-				end
-			else
-				particles[p].state = STATE_IDLE
-			end
-			
-			if particles[p].state == STATE_GET_CODE then
-				code = particles[particles[p].nucleus_id].code[particles[p].code_offset]
-				if code == CODE_START then
-				end
-			end
-			
-			if particles[p].state == STATE_FIND_PARTICLE then
-			end
-			
-		end
 		
 	end
 end
@@ -495,6 +658,7 @@ function love.load()
 	
 	for i=1, particles_count do
 		particles[i] = Particle:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0, 10, 10, "dynamic", math.random(-2,2))
+		--print(i, particles[i])
 		--particles[i].body.b:setLinearVelocity(math.random(-100, 100), math.random(-100, 100))
 	end
 	
@@ -597,126 +761,73 @@ function love.update(dt)
 	--dont even try to understand it
 	for h=1, spacePartHeightCount do
 		for w=1, spacePartWidthCount do
-			
 			calcAllParticlesInsideSpacePart(h,w)
-			
-			--[[check_indexes = {}
-			if h>1 then
-				if w>1 then
-					tableConcat(check_indexes, space_parts[h-1][w-1].indexes)
-				end
-				tableConcat(check_indexes, space_parts[h-1][w].indexes)
-				if w<spacePartWidthCount then
-					tableConcat(check_indexes, space_parts[h-1][w+1].indexes)
-				end
-			end
-			
-			if w>1 then
-				tableConcat(check_indexes, space_parts[h][w-1].indexes)
-			end
-			tableConcat(check_indexes, space_parts[h][w].indexes)
-			if w<spacePartWidthCount then
-				tableConcat(check_indexes, space_parts[h][w+1].indexes)
-			end 
-			
-			if h<spacePartHeightCount then
-				if w>1 then
-					tableConcat(check_indexes, space_parts[h+1][w-1].indexes)
-				end
-				tableConcat(check_indexes, space_parts[h+1][w].indexes)
-				if w<spacePartWidthCount then
-					tableConcat(check_indexes, space_parts[h+1][w+1].indexes)
-				end
-			end
-			
-			ind_size = table.getn(check_indexes)
-			--ind_size = table.getn(space_parts[h][w].indexes)
-			
-			--avrg_dist = 0
-			for i=1, ind_size do
-				--p = space_parts[h][w].indexes[i]
-				p = check_indexes[i]
-				new_vx = 0
-				new_vy = 0
-				
-				dist_sum = 0
-				
-				for j=1, ind_size do
-					--o = space_parts[h][w].indexes[j]
-					o = check_indexes[j]
-					
-					if p~=o then
-						dist_x = particles[o]:getX()-particles[p]:getX()
-						dist_y = particles[o]:getY()-particles[p]:getY()
-						dist = dist_x*dist_x + dist_y*dist_y
-						r = 1/(dist)--it is 1/r^2
-						--print(p, o)
-						if --p<o and 
-						--dist < 40*40 and
-						 dist < 2*(particles[o].radius+particles[p].radius) * 2*(particles[o].radius+particles[p].radius) and
-						( (particles[p].interact_type>=0 and particles[o].interact_type<=0) or 
-						(particles[o].interact_type>=0 and particles[p].interact_type<=0) ) and
-						particles[p].connectCount < particles[p].maxConnectCount and 
-						particles[o].connectCount < particles[o].maxConnectCount then
-							isJoint = false
-							pBodyJoints = particles[p].body.b:getJoints()
-							for jo=1, table.getn(pBodyJoints) do
-								bodyA, bodyB = pBodyJoints[jo]:getBodies()
-								if (particles[p].body.b == bodyA and particles[o].body.b == bodyB) or 
-								(particles[p].body.b == bodyB and particles[o].body.b == bodyA) then
-									isJoint = true
-									break
-								end
-							end
-							if not isJoint then
-								connects[#connects+1] = Connect:create(p,o)
-						
-								particles[p].connectCount = particles[p].connectCount + 1
-								particles[o].connectCount = particles[o].connectCount + 1
-								--print(particles[p].connectCount,particles[p].maxConnectCount,particles[o].connectCount,particles[o].maxConnectCount)
-							end
-						end
-						
-						dist_sum = dist_sum + r
-						r1 = particles[o].mass*r
-						
-						
-						
-						if (particles[p].interact_type>0 and particles[o].interact_type<0) or 
-							(particles[p].interact_type<0 and particles[o].interact_type>0) then
-							new_vx = new_vx + dist_x*r1
-							new_vy = new_vy + dist_y*r1
-						elseif particles[p].interact_type~=0 and particles[o].interact_type~=0 then
-							new_vx = new_vx - 2*dist_x*r1
-							new_vy = new_vy - 2*dist_y*r1
-						end
-						--new_vx = new_vx + dist_x*r1
-						--new_vy = new_vy + dist_y*r1
-					end
-				end
-				
-				--k = 10
-				
-				old_vx, old_vy = particles[p]:getVelocity()
-				particles[p]:setVelocity(old_vx + 1*new_vx, old_vy + 1*new_vy)
-				--print(dist_sum)
-				--if dist_sum < 0.02 then
-				--	particles[p]:setVelocity(old_vx + new_vx, old_vy + new_vy)
-				--elseif dist_sum > 0.03 then
-				--	particles[p]:setVelocity(old_vx - new_vx, old_vy - new_vy)
-				--end
-			end--]]
 		end
 	end
 	
-	--[[for i=1, particles_count do
-		--particles[i]:update()
-		particles[i]:checkRect(spaceX, spaceY, spaceWidth, spaceHeight)
-	end]]--
+	for i=1, table.getn(particles) do
+		if i>table.getn(particles) then
+			break
+		end
+		
+		if particles[i].type ~= COMMON then
+			particles[i].energy = particles[i].energy - 0.0001--0.0001
+		end
+		
+		if particles[i].energy <= 0 then
+			particles[i].alive = false
+		end
+		
+		if not particles[i].alive then
+			particles[i]:delete()
+			table.remove(particles, i)
+		end
+	end
 	
-	put_indexes_in_parts()
+	for i=1, table.getn(nucleuses) do
+		if i>table.getn(nucleuses) then
+			break
+		end
+		if not nucleuses[i].particle.alive then
+			table.remove(nucleuses, i)
+		end
+		--print(i, nucleuses[i].particle.alive)
+	end
+	
+	for i=1, table.getn(factories) do
+		if i>table.getn(factories) then
+			break
+		end
+		if not factories[i].particle.alive then
+			table.remove(factories, i)
+		end
+		--print(i, factories[i].particle.alive)
+	end
+	
+	if table.getn(nucleuses)<10 then
+		nucleuses[#nucleuses+1] = Nucleus:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0)
+		particles[#particles+1] = nucleuses[#nucleuses].particle
+		
+		factories[#factories+1] = Factory:create(nucleuses[#nucleuses].particle:getX() + math.random(-40, 40), nucleuses[#nucleuses].particle:getY() + math.random(-40, 40), 0, 0)
+		particles[#particles+1] = factories[#factories].particle
+	end
+	
+	if table.getn(factories)<10 then
+		factories[#factories+1] = Factory:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0)
+		particles[#particles+1] = factories[#factories].particle
+	end
+	
+	if table.getn(particles)<1000 then
+		particles[#particles+1] = Particle:create(spaceX + math.random(0, spaceWidth), spaceY + math.random(0, spaceHeight), 0, 0, 10, 10, "dynamic", math.random(-2,2))
+	end
+	
+	print("particles: ", table.getn(particles))
+	print("nucleuses: ", table.getn(nucleuses))
+	print("factories: ", table.getn(factories))
 	
     world:update(dt)
+    
+    put_indexes_in_parts()
 
 end
 
@@ -741,9 +852,14 @@ function love.draw()
 		love.graphics.line(x1, y1, x2, y2)
 	end
 	
-	for i=1, particles_count do
+	--print(table.getn(particles))
+	for i=1, table.getn(particles) do
 		love.graphics.setColor(particles[i].color.r, particles[i].color.g, particles[i].color.b)
-		love.graphics.circle("fill", particles[i]:getX(), particles[i]:getY(), particles[i].radius)
+		if particles[i].alive then
+			love.graphics.circle("fill", particles[i]:getX(), particles[i]:getY(), particles[i].radius)
+		else
+			love.graphics.circle("line", particles[i]:getX(), particles[i]:getY(), particles[i].radius)
+		end
 		--love.graphics.circle("fill", particles[i]:getX()+cameraX, particles[i]:getY()+cameraY, particles[i].radius)
 		
 		--love.graphics.points(particles[i]:getX()+cameraX, particles[i]:getY()+cameraY)
@@ -770,11 +886,13 @@ function love.draw()
 	
 	for i=1, table.getn(connects) do
 		love.graphics.setColor(1,1,1)
-		bodyA, bodyB = connects[i].joint:getBodies()
-		if dist_2d(bodyA:getX(), bodyB:getX(), bodyA:getY(), bodyB:getY()) > 80*80 then
-			delete_connects[#delete_connects+1] = i
-		else
-			love.graphics.line(bodyA:getX(), bodyA:getY(), bodyB:getX(), bodyB:getY())
+		if not connects[i].joint:isDestroyed() then
+			bodyA, bodyB = connects[i].joint:getBodies()
+			if dist_2d(bodyA:getX(), bodyB:getX(), bodyA:getY(), bodyB:getY()) > 80*80 then
+				delete_connects[#delete_connects+1] = i
+			else
+				love.graphics.line(bodyA:getX(), bodyA:getY(), bodyB:getX(), bodyB:getY())
+			end
 		end
 	end
 	
@@ -784,7 +902,7 @@ function love.draw()
 		d = delete_connects[#delete_connects-i+1]
 		connects[d]:delete()
 		table.remove(connects, d)
-		print("Really deleted!")
+		--print("Really deleted!")
 	end
 	
     --love.graphics.circle("line", x1, y1, r1)
@@ -793,21 +911,32 @@ function love.draw()
     love.graphics.pop()
     
     
-    imgui.SetNextWindowPos(0, 0)
+    --imgui.SetNextWindowPos(0, 0)
     
-    for i=1, factories_count do
-		imgui.Text("Factory " .. i)
-		imgui.Text("State " .. factories[i].particle.state)
-		
-		n_id = factories[i].particle.nucleus_id
-		imgui.Text("Connected to Nucleus " .. n_id)
-		if n_id > 0 then
-			s = ""
-			for j=1, particles[n_id].code_size do
-				s = s .. particles[n_id].code[j] .. ", "
+    for i=1, table.getn(factories) do
+		--if factories[i].particle.alive then
+			imgui.Text("Factory " .. i)
+			--imgui.Text("State " .. factories[i].particle.state)
+			imgui.Text("State " .. state_to_str(factories[i].particle.state))
+			
+			imgui.Text("Code_offset " .. factories[i].particle.code_offset)
+			
+			if factories[i].particle.state ~= STATE_IDLE then
+				imgui.Text("Cur code " .. factories[i].particle.nucleus_id.code[factories[i].particle.code_offset])
 			end
-			imgui.TextWrapped(s)
-		end
+			
+			
+			n_id = factories[i].particle.nucleus_id
+			--print(n_id)
+			--imgui.Text("Connected to Nucleus " .. n_id)
+			if n_id ~= 0 then--why not nil
+				s = ""
+				for j=1, n_id.code_size do
+					s = s .. n_id.code[j] .. ", "
+				end
+				imgui.TextWrapped(s)
+			end
+		--end
     end
     --[[
     for i=1, nucleuses_count do
